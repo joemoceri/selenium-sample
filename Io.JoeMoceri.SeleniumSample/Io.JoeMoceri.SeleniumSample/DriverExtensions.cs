@@ -7,7 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Io.JoeMoceri.SeleniumSample
+namespace SeleniumFFmpeg
 {
     public static class DriverExtensions
     {
@@ -40,7 +40,15 @@ namespace Io.JoeMoceri.SeleniumSample
                 {
                     var result = driver.FindElements(by);
 
-                    return result[0];
+                    if (result[0] != null)
+                    {
+                        if (!result[0].Enabled && !result[0].Displayed)
+                        {
+                            throw new NoSuchElementException();
+                        }
+
+                        return result[0];
+                    }
                 }
                 catch (NoSuchElementException ex)
                 {

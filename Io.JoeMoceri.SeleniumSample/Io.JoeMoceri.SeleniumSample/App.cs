@@ -1,11 +1,11 @@
 ﻿using System;
+using System.Threading.Tasks;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Chrome;
 using OpenQA.Selenium.Interactions;
-using OpenQA.Selenium.Support.UI;
 using SeleniumExtras.PageObjects;
 
-namespace Io.JoeMoceri.SeleniumSample
+namespace SeleniumFFmpeg
 {
     public class App : IDisposable
     {
@@ -16,73 +16,122 @@ namespace Io.JoeMoceri.SeleniumSample
             driver?.Dispose();
         }
 
-        public void Run()
+        public async Task Run()
         {
+            var url = "https://www.google.com/";
+            var uri = new Uri(url);
+
             using (driver = GetChromeDriver())
             {
-                // pre
-                var action = new Actions(driver);
+                // setup actions and driver
+                var actions = new Actions(driver);
+                SetupDriver(driver, url);
 
-                driver.Manage().Window.Maximize();
-                PageFactory.InitElements(driver, this);
+                var jsExecutor = (IJavaScriptExecutor)driver;
 
-                // get a form element
-                var formElement = driver.TryFindElement(By.ClassName("your-class-name"), 5);
-
-                // mouse over it
-                MouseoverForm(formElement);
-
-                var element = driver.TryFindElement(By.Id("field-name"), 5);
-
-                element = ClearStaleElement(element, "field-name");
-                action.MoveToElement(element).Perform();
-                element = ClearStaleElement(element, "field-name");
-                element.Clear();
-
-                element = ClearStaleElement(element, "field-name");
-                element.SendKeys("example message to appear in the form field");
-            }
-
-            void MouseoverForm(IWebElement element)
-            {
-                var javaScript = "var evObj = document.createEvent('MouseEvents');" +
-                        "evObj.initMouseEvent(\"mouseover\",true, false, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);" +
-                        "arguments[0].dispatchEvent(evObj);";
-
-                ((IJavaScriptExecutor)driver).ExecuteScript(javaScript, element);
-            }
-
-            IWebElement ClearStaleElement(IWebElement element, string idToWait)
-            {
-                bool staleElement = true;
-                var i = 0;
-                while (staleElement || i == 100)
+                // start recording the screen
+                using (var screenRecorder = new ScreenRecorder())
                 {
-                    try
+                    // start recording the screen
+                    screenRecorder.StartRecording(uri.Authority);
+
+                    await Task.Delay(1000);
+
+                    // find the main google search textarea
+                    var e = driver.FindElement(By.XPath("/html/body/div[1]/div[3]/form/div[1]/div[1]/div[1]/div/div[2]/textarea"));
+
+                    // search
+                    e.SendKeys("2024 election");
+                    e.SendKeys(Keys.Enter);
+
+                    await Task.Delay(1000);
+
+                    // begin scrolling the page from the top
+                    var startPosition = 0;
+
+                    // scroll to the bottom 5 times as the page loads more results
+                    for (var i = 0; i < 5; i++)
                     {
-                        staleElement = false;
-                    }
-                    catch (StaleElementReferenceException)
-                    {
-                        staleElement = true;
-                        element = driver.TryFindElement(By.Id(idToWait), 5);
+                        startPosition = ScrollPage(jsExecutor, startPosition);
                     }
 
-                    i++;
+                    await Task.Delay(10000);
+                }
+            }
+        }
+
+        private int ScrollPage(IJavaScriptExecutor jsExecutor, int startPosition)
+        {
+            // get the documents current height
+            var height = int.Parse(jsExecutor.ExecuteScript("return document.body.scrollHeight").ToString());
+
+            // starting from the start position, slowly scroll down
+            for (var i = startPosition; i < height; i++)
+            {
+                jsExecutor.ExecuteScript($"window.scrollTo({startPosition}, {i})");
+            }
+
+            // return the current height to be used for the next start position
+            return height;
+        }
+
+        private void SetupDriver(IWebDriver driver, string url)
+        {
+            // maximize the window and navigate to the url
+            driver.Manage().Window.Maximize();
+            PageFactory.InitElements(driver, this);
+            driver.Navigate().GoToUrl(url);
+        }
+
+        private void MouseoverForm(IWebElement element)
+        {
+            var javaScript = "var evObj = document.createEvent('MouseEvents');" +
+                    "evObj.initMouseEvent(\"mouseover\",true, false, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null);" +
+                    "arguments[0].dispatchEvent(evObj);";
+
+            ((IJavaScriptExecutor)driver).ExecuteScript(javaScript, element);
+        }
+
+        private IWebElement ClearStaleElement(IWebElement element, string idToWait)
+        {
+            bool staleElement = true;
+            var i = 0;
+            while (staleElement || i == 100)
+            {
+                try
+                {
+                    staleElement = false;
+                }
+                catch (StaleElementReferenceException)
+                {
+                    staleElement = true;
+                    element = driver.TryFindElement(By.Id(idToWait), 5);
                 }
 
-                return element;
+                i++;
             }
 
-            IWebDriver GetChromeDriver()
+            return element;
+        }
+
+        private IWebDriver GetChromeDriver()
+        {
+            var chromeOptions = new ChromeOptions();
+            var disabledFeatures = new[]
             {
-                var chromeOptions = new ChromeOptions();
-                chromeOptions.AddUserProfilePreference("disable-popup-blocking", "true");
+                    //"OptimizationHints", "OptimizationHintsFetching", "Translate", "OptimizationTargetPrediction", "OptimizationGuideModelDownloading",
+                    //"InsecureDownloadWarnings", "InterestFeedContentSuggestions", "PrivacySandboxSettings4", 
+                    "SidePanelPinning",
+                };
 
-                chromeOptions.AddArgument("headless");
+            // get rid of you can open bookmarks tab from PR https://github.com/seleniumbase/SeleniumBase/pull/2837
+            chromeOptions.AddArguments($"--disable-features={string.Join(",", disabledFeatures)}");
 
-                return new ChromeDriver(chromeOptions);
-            }
+            chromeOptions.AddUserProfilePreference("disable-popup-blocking", "true");
+
+            //chromeOptions.AddArgument("headless");
+
+            return new ChromeDriver(chromeOptions);
         }
     }
 }
